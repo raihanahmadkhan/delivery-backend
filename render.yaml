@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: delivery-route-optimizer-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_CORS_ORIGINS
+        sync: false   # Set this manually in the Render dashboard to your Netlify URL
+                      # e.g. ["https://your-app.netlify.app"]
