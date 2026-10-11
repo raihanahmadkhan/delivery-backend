@@ -1,0 +1,3 @@
+# Optional free, local comparison solver. Not required for any core functionality.
+-r requirements.txt
+ortools==9.15.6755

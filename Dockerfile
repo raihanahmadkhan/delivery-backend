@@ -2,16 +2,17 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install dependencies first (cached layer unless requirements.txt changes)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements-bootstrap.txt .
+RUN python -m pip install --no-cache-dir -r requirements-bootstrap.txt && python -m pip install --no-cache-dir -r requirements.txt
 
-# Copy application source
-COPY . .
+COPY main.py config.py ./
+COPY routelab ./routelab
+RUN useradd --create-home --uid 10001 routelab && mkdir -p /app/data && chown routelab:routelab /app/data
+USER routelab
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 ROUTELAB_DB=/app/data/routelab.sqlite3
 
-# Expose FastAPI port
 EXPOSE 8000
 
-# Run uvicorn with production settings
-# Use --host 0.0.0.0 so Docker port mapping works
+# Single API process; the Compose worker owns CPU execution.
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

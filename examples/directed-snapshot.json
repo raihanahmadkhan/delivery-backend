@@ -1,0 +1,20 @@
+{
+  "name": "Directed travel snapshot / illustrative",
+  "description": "Synthetic directed travel costs for inspecting asymmetry. This is not an OSM or measured road dataset. Units: kilometres and minutes.",
+  "coordinate_mode": "cartesian",
+  "depot_id": "depot",
+  "fleet": {"count": 2, "capacity": 6, "start_time": 0, "end_time": 120},
+  "nodes": [
+    {"id": "depot", "name": "Depot", "x": 0, "y": 0, "demand": 0, "service_minutes": 0, "window_end": 120},
+    {"id": "a", "name": "North market", "x": 2, "y": 4, "demand": 2, "service_minutes": 5, "window_start": 15, "window_end": 50},
+    {"id": "b", "name": "East workshop", "x": 5, "y": 2, "demand": 2, "service_minutes": 8, "window_end": 70},
+    {"id": "c", "name": "South station", "x": 3, "y": -2, "demand": 2, "service_minutes": 5, "window_end": 90}
+  ],
+  "matrix": {
+    "distances_km": [[0, 2, 5, 3], [8, 0, 2, 4], [3, 6, 0, 2], [2, 4, 7, 0]],
+    "durations_minutes": [[0, 6, 10, 8], [16, 0, 5, 9], [8, 14, 0, 6], [5, 10, 18, 0]],
+    "source": "hand-authored synthetic directed example",
+    "profile": "illustrative, not measured driving",
+    "data_version": "1"
+  }
+}
