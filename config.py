@@ -1,32 +1,27 @@
 import json
-from pydantic_settings import BaseSettings, SettingsConfigDict
-_LOCALHOST_ORIGINS = ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173']
+import os
 
-class Settings(BaseSettings):
-    app_name: str = 'Delivery Route Optimizer API'
-    app_version: str = '1.0.0'
-    debug: bool = False
-    cors_origins: str = ''
-    max_nodes: int = 200
-    max_iterations: int = 500
-    max_population: int = 200
-    max_ants: int = 100
-    max_particles: int = 100
-    model_config = SettingsConfigDict(env_prefix='APP_', case_sensitive=False)
+_LOCALHOST_ORIGINS = [
+    f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (5173, 8080, 8000)
+]
+
 
 def get_cors_origins() -> list[str]:
-    """
-    Parse settings.cors_origins string into a list of allowed origins.
-    Called once at app startup so the result reflects the current env var.
-    """
-    raw = (settings.cors_origins or '').strip()
+    raw = os.environ.get("APP_CORS_ORIGINS", "").strip()
     if not raw:
         return _LOCALHOST_ORIGINS
     try:
         parsed = json.loads(raw)
-        if isinstance(parsed, list):
-            return [str(o).strip() for o in parsed if str(o).strip()]
-    except (json.JSONDecodeError, ValueError):
+        if isinstance(parsed, list) and all(isinstance(item, str) for item in parsed):
+            return [item.strip().rstrip("/") for item in parsed if item.strip()]
+    except (ValueError, TypeError):
         pass
-    return [o.strip() for o in raw.split(',') if o.strip()]
-settings = Settings()
+    return [item.strip().rstrip("/") for item in raw.split(",") if item.strip()]
+
+
+def get_allowed_hosts() -> list[str]:
+    return [
+        host.strip()
+        for host in os.environ.get("ROUTELAB_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]").split(",")
+        if host.strip()
+    ]
