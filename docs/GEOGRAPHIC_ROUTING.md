@@ -1,10 +1,10 @@
 # Geographic routing in RouteLab
 
-The primary workspace is a real map; the research tools remain underneath it. No API keys, paid plans, commercial routing APIs, or cloud accounts are needed. The supported deployment is a trusted local machine.
+The primary workspace is a real map; the research tools remain underneath it. No API keys, paid plans, or commercial routing APIs are needed. The current app uses a shared workspace without sign-in.
 
 ## Plan a route
 
-1. **Places:** search for a city, landmark, or address and press Search. Select a result, then use it as the depot or a delivery. Alternatively choose Set depot/Add deliveries and click the map. The keyboard-accessible map-center action also selects a location. Drag unfrozen markers to refine them.
+1. **Places:** type a city, landmark, or address. Suggestions appear after a short pause and favor the current map area. Click a suggestion or select it with the arrow keys and Enter, then use it as the depot or a delivery. Alternatively choose Set depot/Add deliveries and click the map. The keyboard-accessible map-center action also selects a location. Drag unfrozen markers to refine them.
 2. **Fleet:** choose the available vehicles and their shared capacity. Demand is measured in your own consistent units, not implicitly kilograms.
 3. **Constraints:** set the shift, optional maximum distance, and each stop's demand, service time, and service-start window. Times are minutes from midnight (480 = 08:00). Routes must return to the depot within both the depot window and shift.
 4. **Solve:** select the method and budget, then Build roads & solve. RouteLab obtains and freezes the road matrix before starting the durable optimization job. All customers must be served; feasible solutions minimize vehicles first, distance second.
@@ -30,10 +30,10 @@ The public service does not publish an immutable extract version, so provenance 
 | Component | Default | Self-host configuration |
 | --- | --- | --- |
 | Map tiles | OpenStreetMap standard raster tiles | `ROUTELAB_TILE_URL` browser-reachable XYZ template |
-| Explicit place search | Photon community server | `ROUTELAB_PHOTON_URL` |
+| Place suggestions | Photon community server | `ROUTELAB_PHOTON_URL` |
 | Road matrix/geometry | OSRM community server | `ROUTELAB_OSRM_URL` plus `ROUTELAB_OSRM_DATA_VERSION` |
 
-The browser requests visible tiles. Search text is sent through the backend to Photon only on explicit submission; selected coordinates go to OSRM when building roads or requesting final geometry. No user geolocation permission or background location collection is used. Do not send sensitive addresses to community providers; configure local services first if privacy requires it.
+The browser requests visible tiles. After at least two characters and a 500 ms typing pause, search text is sent through the backend to Photon with the map center rounded to two decimal places for relevance. Selected coordinates go to OSRM when building roads or requesting final geometry. No user geolocation permission or background location collection is used. Do not send sensitive addresses to community providers; configure local services first if privacy requires it.
 
 Community providers are for light interactive use, not a production SLA or bulk/shared service. RouteLab caps public road requests at **25 deliveries**; a self-hosted engine supports **100**. Frozen inputs can still be optimized without a provider connection. The backend schedules requests at least 1.1 seconds apart per service across processes sharing the SQLite notebook, caps queue waiting, and caches search, matrices, and geometry. Separate installations/databases do not coordinate these limits. No tile downloading, prefetching, or offline tile scraping is implemented.
 

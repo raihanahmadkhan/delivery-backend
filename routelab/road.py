@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 from . import store
-from .geography import fetch_json, service_url
+from .geography import bounded_coordinate, fetch_json, service_url
 from .matrices import coordinates_hash, digest
 from .models import MatrixInput, Scenario
 
@@ -37,9 +37,29 @@ def configured():
 
 
 def valid_point(lon, lat):
-    return all(isinstance(v, (int, float)) and math.isfinite(v) for v in (lon, lat)) and (
-        -180 <= lon <= 180 and -90 <= lat <= 90
-    )
+    return bounded_coordinate(lon, -180, 180) and bounded_coordinate(lat, -90, 90)
+
+
+def valid_metric(value):
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return value >= 0 and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def scaled_matrix(values, size, divisor):
+    if not isinstance(values, list) or len(values) != size:
+        raise ValueError("Road engine returned an invalid matrix")
+    output = []
+    for row in values:
+        if not isinstance(row, list) or len(row) != size:
+            raise ValueError("Road engine returned an invalid matrix")
+        if any(value is not None and not valid_metric(value) for value in row):
+            raise ValueError("Road engine returned an invalid distance or duration")
+        output.append([None if value is None else value / divisor for value in row])
+    return output
 
 
 def assert_ready(scenario):
@@ -59,9 +79,8 @@ def assert_ready(scenario):
 def osrm(base, path):
     body = fetch_json(base, path)
     if not isinstance(body, dict) or body.get("code") != "Ok":
-        code = (
-            body.get("code", "invalid response") if isinstance(body, dict) else "invalid response"
-        )
+        code = body.get("code") if isinstance(body, dict) else None
+        code = code[:120] if isinstance(code, str) else "invalid response"
         raise ValueError(
             f"Road engine: {code}. Place every stop within 200 m of a drivable road and within the installed region."
         )
@@ -103,10 +122,16 @@ def snapshot(scenario: Scenario):
         )
         try:
             points = body["sources"]
-            if len(points) != len(scenario.nodes):
+            if not isinstance(points, list) or len(points) != len(scenario.nodes):
                 raise ValueError("Road engine returned an incomplete snap list")
             snapped, hints = [], []
             for point in points:
+                if (
+                    not isinstance(point, dict)
+                    or not isinstance(point.get("location"), list)
+                    or len(point["location"]) != 2
+                ):
+                    raise ValueError("Invalid snapped road coordinate")
                 lon, lat = point["location"]
                 if not valid_point(lon, lat):
                     raise ValueError("Invalid snapped road coordinate")
@@ -116,12 +141,8 @@ def snapshot(scenario: Scenario):
                     raise ValueError("Invalid road hint")
                 hints.append(hint)
             cached = MatrixInput(
-                distances_km=[
-                    [None if v is None else v / 1000 for v in row] for row in body["distances"]
-                ],
-                durations_minutes=[
-                    [None if v is None else v / 60 for v in row] for row in body["durations"]
-                ],
+                distances_km=scaled_matrix(body["distances"], len(scenario.nodes), 1000),
+                durations_minutes=scaled_matrix(body["durations"], len(scenario.nodes), 60),
                 source="OSRM community / OpenStreetMap"
                 if base == PUBLIC_ENGINE
                 else "Self-hosted OSRM / OpenStreetMap",
@@ -190,7 +211,7 @@ def geometry(scenario: Scenario, route: list[str]):
     try:
         result = body["routes"][0]
         legs = result["legs"]
-        if len(legs) != len(indices) - 1:
+        if not isinstance(legs, list) or len(legs) != len(indices) - 1:
             raise ValueError("Road geometry has the wrong number of legs")
         for leg, a, b in zip(legs, indices, indices[1:], strict=False):
             distance, duration = (
@@ -200,8 +221,8 @@ def geometry(scenario: Scenario, route: list[str]):
             if (
                 distance is None
                 or duration is None
-                or not math.isfinite(leg["distance"])
-                or not math.isfinite(leg["duration"])
+                or not valid_metric(leg["distance"])
+                or not valid_metric(leg["duration"])
                 or abs(leg["distance"] / 1000 - distance) > 0.01
                 or abs(leg["duration"] / 60 - duration) > 1 / 60
             ):
@@ -209,9 +230,16 @@ def geometry(scenario: Scenario, route: list[str]):
                     "Current road geometry no longer matches the saved matrix. Rebuild roads for a fresh run."
                 )
         shape = result["geometry"]
-        if shape["type"] != "LineString" or not 2 <= len(shape["coordinates"]) <= 100000:
+        if (
+            shape["type"] != "LineString"
+            or not isinstance(shape["coordinates"], list)
+            or not 2 <= len(shape["coordinates"]) <= 100000
+        ):
             raise ValueError("Invalid road geometry")
-        for lon, lat in shape["coordinates"]:
+        for point in shape["coordinates"]:
+            if not isinstance(point, list) or len(point) != 2:
+                raise ValueError("Invalid road geometry coordinate")
+            lon, lat = point
             if not valid_point(lon, lat):
                 raise ValueError("Invalid road geometry coordinate")
         output = {"geometry": shape, "matrix_hash": digest(scenario.matrix.model_dump())}

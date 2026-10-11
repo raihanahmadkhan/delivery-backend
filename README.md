@@ -28,3 +28,23 @@ python scripts/check_lifecycle.py
 ```
 
 Optional OR-Tools: `python -m pip install -r requirements-reference.txt`. The full release script requires it and frontend dependencies: `python scripts/verify_release.py --output artifacts/release-check-01`.
+
+## Render connectivity
+
+For the existing Render service, set these values in **Render → Environment**, then redeploy. Editing `.env.example` does not configure the running service; RouteLab reads process environment variables.
+
+```text
+ROUTELAB_ALLOWED_HOSTS=delivery-backend-22c4.onrender.com,localhost,127.0.0.1
+APP_CORS_ORIGINS=["https://droptimizer.netlify.app"]
+ROUTELAB_EMBEDDED_WORKER=1
+```
+
+Without an explicit host override, RouteLab accepts loopback hosts and Render's exact `RENDER_EXTERNAL_HOSTNAME`. Explicit `ROUTELAB_ALLOWED_HOSTS` replaces those defaults; include any custom domain used by Render health checks. A missing allowed host returns `400 Invalid host header`; an incorrect frontend origin blocks browser requests.
+
+Use this start command with one API process and its embedded worker:
+
+```sh
+python -m uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+```
+
+Check `https://delivery-backend-22c4.onrender.com/ready` after deployment. A `200` response confirms a fresh worker heartbeat; `503` means the worker is unavailable. `/health` checks storage and can succeed without a worker. Keep `ROUTELAB_DB` on a writable path; retaining SQLite history across restarts requires persistent storage. The app uses shared scenarios and job history without sign-in.

@@ -20,8 +20,11 @@ def get_cors_origins() -> list[str]:
 
 
 def get_allowed_hosts() -> list[str]:
-    return [
-        host.strip()
-        for host in os.environ.get("ROUTELAB_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1]").split(",")
-        if host.strip()
-    ]
+    raw = os.environ.get("ROUTELAB_ALLOWED_HOSTS")
+    if raw is not None:
+        return [host.strip() for host in raw.split(",") if host.strip()]
+    hosts = ["localhost", "127.0.0.1"]
+    render_hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "").strip()
+    if render_hostname and render_hostname not in hosts:
+        hosts.append(render_hostname)
+    return hosts

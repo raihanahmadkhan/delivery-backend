@@ -7,6 +7,7 @@ from unittest.mock import patch
 from routelab import store
 from routelab.evaluator import evaluate
 from routelab.experiments import run_once
+from routelab.importers import import_file
 from routelab.matrices import build_matrix
 from routelab.models import Fleet, RunOptions, Scenario, Stop
 from routelab.presets import get_scenario
@@ -25,6 +26,20 @@ def scenario():
 
 
 class ContractTests(unittest.TestCase):
+    def test_csv_rejects_half_provided_geographic_coordinates(self):
+        for coordinates in (b"18.5,", b",73.8"):
+            content = b"x,y,latitude,longitude\n0,0," + coordinates + b"\n1,1," + coordinates
+            with (
+                self.subTest(coordinates=coordinates),
+                self.assertRaisesRegex(ValueError, "provide both latitude and longitude"),
+            ):
+                import_file("stops.csv", content)
+
+    def test_csv_allows_blank_geographic_columns_for_cartesian_stops(self):
+        problem = import_file("stops.csv", b"x,y,latitude,longitude\n0,0,,\n1,1,,")
+        self.assertEqual(problem.coordinate_mode, "cartesian")
+        self.assertEqual((problem.nodes[1].x, problem.nodes[1].y), (1, 1))
+
     def test_capacity_and_coverage_are_hard(self):
         problem = scenario()
         matrix = build_matrix(problem)

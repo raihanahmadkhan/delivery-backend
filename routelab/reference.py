@@ -107,10 +107,14 @@ def ortools_solve(search):
     remaining = max(0.001, search.options.time_limit_seconds - search.elapsed())
     parameters.time_limit.FromMilliseconds(max(1, int(remaining * 1000)))
 
+    stopped = None
+
     def at_solution():
+        nonlocal stopped
         try:
             search.check()
-        except SearchStopped:
+        except SearchStopped as exc:
+            stopped = exc
             routing.solver().FinishCurrentSearch()
 
     routing.AddAtSolutionCallback(at_solution)
@@ -127,4 +131,6 @@ def ortools_solve(search):
             if route:
                 routes.append(route)
         search.consider(routes, "OR-Tools reference (conservative scaling)")
+    if stopped is not None:
+        raise stopped
     search.check()

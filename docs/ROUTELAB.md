@@ -80,7 +80,7 @@ The workspace Compose recipe mounts a persistent volume into API and worker and 
 
 Back up SQLite with its backup API or stop both processes before copying the database and its WAL state. Do not copy just a live `.sqlite3` file and assume every committed write is included. Saved artifacts remain on disk; the notebook lists the latest 100 entries. The disposable search/geometry cache alone is bounded to 1,000 entries/32 MB, with expiry and oldest-entry eviction.
 
-This build has **no authentication** and must stay bound to a trusted local machine. CORS is not access control. Body/time/queue limits, origin and Host checks are implemented; public deployment still needs authentication and authorization, TLS, rate/per-user quotas, observability and deployment-specific isolation/security review. Swagger documentation uses upstream CDN assets; the geographic UI requests visible tiles and explicit search/routing data from the configured providers.
+This build uses a **shared workspace without authentication**. Saved scenarios, job history, and job controls are shared by every visitor. CORS is not access control. Body/time/queue limits, origin and Host checks are implemented; Netlify and Render terminate TLS. Private workspaces would require authentication and authorization. Swagger documentation uses upstream CDN assets; the geographic UI requests visible tiles, place suggestions, and routing data from the configured providers.
 
 ## Verification and completion gate
 

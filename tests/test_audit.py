@@ -1,3 +1,4 @@
+import importlib.util
 import itertools
 import os
 import random
@@ -21,6 +22,8 @@ from routelab.models import ExperimentRequest, Fleet, ReplanRequest, RunOptions,
 from routelab.presets import get_scenario
 from routelab.replan import run_replan
 from routelab.solvers import Search
+
+HAS_ORTOOLS = importlib.util.find_spec("ortools") is not None
 
 
 def generated(seed, count=4):
@@ -101,6 +104,35 @@ def brute_objective(problem):
 
 
 class OptimizationAudit(unittest.TestCase):
+    def test_already_cancelled_solvers_stop_before_construction(self):
+        for algorithm in ("greedy", "local_search", "alns", "exact", "ortools"):
+            with self.subTest(algorithm=algorithm):
+                result = run_once(
+                    get_scenario("tiny"),
+                    RunOptions(algorithm=algorithm),
+                    cancelled=lambda: True,
+                )
+                self.assertEqual(result["termination_reason"], "cancelled")
+                self.assertFalse(result["proven_optimal"])
+                self.assertEqual(result["routes"], [])
+
+    @unittest.skipUnless(HAS_ORTOOLS, "Optional OR-Tools reference is not installed")
+    def test_reference_retains_callback_cancellation_reason(self):
+        polls = 0
+
+        def cancelled():
+            nonlocal polls
+            polls += 1
+            return polls >= 2
+
+        result = run_once(
+            get_scenario("tiny"),
+            RunOptions(algorithm="ortools", time_limit_seconds=3),
+            cancelled=cancelled,
+        )
+        self.assertEqual(result["termination_reason"], "cancelled")
+        self.assertTrue(result["evaluation"]["feasible"])
+
     def test_exact_matches_independent_permutations_and_partitions(self):
         for seed in range(25):
             problem = generated(seed)
@@ -125,10 +157,11 @@ class OptimizationAudit(unittest.TestCase):
                     self.assertEqual(search.admissible(route), feasible_except_missing)
 
     def test_heuristic_results_are_checked_and_never_beat_exact(self):
+        algorithms = ("greedy", "local_search", "alns") + (("ortools",) if HAS_ORTOOLS else ())
         for seed in range(12):
             problem = generated(seed)
             optimum = brute_objective(problem)
-            for algorithm in ("greedy", "local_search", "alns", "ortools"):
+            for algorithm in algorithms:
                 result = run_once(
                     problem, RunOptions(algorithm=algorithm, time_limit_seconds=0.15, iterations=12)
                 )
@@ -189,6 +222,7 @@ class OptimizationAudit(unittest.TestCase):
         self.assertEqual(a["matrix_hash"], b["matrix_hash"])
         self.assertEqual(a["termination_reason"], "iteration_limit")
 
+    @unittest.skipUnless(HAS_ORTOOLS, "Optional OR-Tools reference is not installed")
     def test_reference_empty_integer_domain_is_not_crash_or_proof(self):
         problem = generated(1)
         problem.nodes[1].window_start = 0.0001

@@ -32,7 +32,7 @@ class Search:
         self.rng = random.Random(options.seed)
         self.start = time.perf_counter()
         self.progress, self.cancelled = progress, cancelled
-        self.last_signal = 0.0
+        self.last_signal = -0.2
         self.evaluations, self.iteration = 0, 0
         self.best_routes = []
         self.best = evaluate(scenario, matrix, [])
