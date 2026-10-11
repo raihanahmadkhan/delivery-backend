@@ -1,11 +1,14 @@
 """Road snapshot identity, geometry fidelity, and external-service boundaries."""
 
+import io
 import os
 import tempfile
 import unittest
 from copy import deepcopy
+from http.client import IncompleteRead
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi.testclient import TestClient
 
@@ -209,6 +212,63 @@ class GeographicTests(unittest.TestCase):
             with self.subTest(url=url), self.assertRaises(ValueError):
                 geography.service_url(url, "photon.komoot.io", "photon")
 
+    def test_equivalent_public_urls_preserve_community_limits(self):
+        with patch.dict(
+            os.environ,
+            {
+                "ROUTELAB_OSRM_URL": "HTTPS://ROUTER.PROJECT-OSRM.ORG:443/",
+                "ROUTELAB_OSRM_DATA_VERSION": "",
+                "ROUTELAB_PHOTON_URL": "HTTPS://PHOTON.KOMOOT.IO:443/",
+            },
+        ):
+            self.assertEqual(road.configuration(), (road.PUBLIC_ENGINE, "community-unversioned"))
+            self.assertTrue(geography.map_configuration()["search_public"])
+            scenario = example().model_dump()
+            scenario["nodes"] = [scenario["nodes"][0]] + [
+                {**scenario["nodes"][1], "id": f"customer-{index}"} for index in range(26)
+            ]
+            with (
+                patch("routelab.road.fetch_json") as fetch,
+                self.assertRaisesRegex(ValueError, "at most 25"),
+            ):
+                road.snapshot(Scenario.model_validate(scenario))
+            fetch.assert_not_called()
+
+    def test_service_normalization_preserves_local_ports_and_ipv6(self):
+        for supplied, expected in [
+            ("http://LOCALHOST:5000", "http://localhost:5000"),
+            ("http://[::1]:5000", "http://[::1]:5000"),
+            ("http://osrm:80", "http://osrm"),
+        ]:
+            with self.subTest(url=supplied):
+                self.assertEqual(
+                    geography.service_url(supplied, "router.project-osrm.org", "osrm"), expected
+                )
+
+    def test_tile_configuration_rejects_invalid_ports(self):
+        for url in [
+            "https://tiles.example.com:bad/{z}/{x}/{y}.png",
+            "https://tiles.example.com:99999/{z}/{x}/{y}.png",
+            "http://[::1/{z}/{x}/{y}.png",
+        ]:
+            with (
+                self.subTest(url=url),
+                patch.dict(os.environ, {"ROUTELAB_TILE_URL": url}),
+                self.assertRaisesRegex(ValueError, "invalid host or port"),
+            ):
+                geography.map_configuration()
+
+    def test_http_tiles_match_browser_csp_loopback_hosts(self):
+        for host in ("localhost", "127.0.0.1"):
+            template = f"http://{host}:8088/tiles/{{z}}/{{x}}/{{y}}.png"
+            with self.subTest(host=host), patch.dict(os.environ, {"ROUTELAB_TILE_URL": template}):
+                self.assertEqual(geography.map_configuration()["tile_url"], template)
+        with (
+            patch.dict(os.environ, {"ROUTELAB_TILE_URL": "http://[::1]:8088/{z}/{x}/{y}.png"}),
+            self.assertRaisesRegex(ValueError, "localhost or 127.0.0.1"),
+        ):
+            geography.map_configuration()
+
     def test_search_normalizes_bounded_plain_text_results_and_caches(self):
         payload = {
             "features": [
@@ -253,6 +313,196 @@ class GeographicTests(unittest.TestCase):
             },
         ):
             self.assertEqual(len(geography.search("Pune")), 1)
+
+    def test_search_bias_uses_stable_nearby_cache_without_sharing_distant_results(self):
+        payload = {
+            "features": [
+                {"geometry": {"coordinates": [73.85, 18.52]}, "properties": {"name": "Pharmacy"}}
+            ]
+        }
+        with patch("routelab.geography.fetch_json", return_value=payload) as fetch:
+            first = geography.search("pharmacy", latitude=18.521, longitude=73.856)
+            self.assertEqual(
+                first, geography.search(" PHARMACY ", latitude=18.522, longitude=73.857)
+            )
+            fetch.assert_called_once()
+            params = parse_qs(urlsplit(fetch.call_args.args[1]).query)
+            self.assertEqual(params["lat"], ["18.52"])
+            self.assertEqual(params["lon"], ["73.86"])
+            self.assertEqual(params["limit"], ["6"])
+            self.assertNotIn("bbox", params)
+            geography.search("pharmacy", latitude=19.53, longitude=72.99)
+            geography.search("pharmacy")
+            self.assertEqual(fetch.call_count, 3)
+
+    def test_search_labels_include_address_and_deduplicate_location_names(self):
+        payload = {
+            "features": [
+                {
+                    "geometry": {"coordinates": [73.85, 18.52]},
+                    "properties": {
+                        "name": "Apte Pharmacy",
+                        "housenumber": "14",
+                        "street": " FC  Road ",
+                        "locality": "Shivajinagar",
+                        "city": "Pune",
+                        "county": "PUNE",
+                        "state": "Maharashtra",
+                        "postcode": "411005",
+                        "country": "India",
+                    },
+                }
+            ]
+        }
+        with patch("routelab.geography.fetch_json", return_value=payload):
+            self.assertEqual(
+                geography.search("apte")[0]["name"],
+                "Apte Pharmacy, 14 FC Road, Shivajinagar, Pune, Maharashtra, 411005, India",
+            )
+
+    def test_search_skips_malformed_features_but_rejects_invalid_response(self):
+        valid = {"geometry": {"coordinates": [73.85, 18.52]}, "properties": {"name": "Pune"}}
+        payload = {"features": [None, {"geometry": None}, {**valid, "properties": None}, valid]}
+        with patch("routelab.geography.fetch_json", return_value=payload):
+            self.assertEqual(len(geography.search("Pune")), 1)
+        for index, invalid in enumerate(
+            [
+                None,
+                {},
+                {"features": {}},
+                {"features": [None]},
+                {"features": [{**valid, "geometry": {"coordinates": [True, 18.52]}}]},
+            ]
+        ):
+            with (
+                self.subTest(payload=invalid),
+                patch("routelab.geography.fetch_json", return_value=invalid),
+                self.assertRaisesRegex(ValueError, "invalid data"),
+            ):
+                geography.search(f"invalid {index}")
+
+    def test_search_rejects_invalid_focus_before_provider_request(self):
+        for latitude, longitude in [
+            (18.52, None),
+            (None, 73.85),
+            (float("nan"), 73.85),
+            (18.52, float("inf")),
+            (86, 73.85),
+            (18.52, 181),
+            (True, 73.85),
+        ]:
+            with (
+                self.subTest(latitude=latitude, longitude=longitude),
+                patch("routelab.geography.fetch_json") as fetch,
+                self.assertRaises(ValueError),
+            ):
+                geography.search("pharmacy", latitude=latitude, longitude=longitude)
+            fetch.assert_not_called()
+
+    def test_places_endpoint_validates_optional_coordinate_pair(self):
+        with (
+            TestClient(app, base_url="http://localhost") as client,
+            patch("routelab.geography.search", return_value=[]) as search,
+        ):
+            response = client.get(
+                "/api/places", params={"q": "pharmacy", "latitude": 18.52, "longitude": 73.85}
+            )
+            self.assertEqual(response.status_code, 200)
+            search.assert_called_once_with("pharmacy", latitude=18.52, longitude=73.85)
+            for extra in [
+                {"latitude": 18.52},
+                {"longitude": 73.85},
+                {"latitude": "nan", "longitude": 73.85},
+                {"latitude": 18.52, "longitude": 181},
+                {"latitude": 86, "longitude": 73.85},
+            ]:
+                with self.subTest(params=extra):
+                    self.assertEqual(
+                        client.get("/api/places", params={"q": "pharmacy", **extra}).status_code,
+                        422,
+                    )
+            self.assertEqual(search.call_count, 1)
+            self.assertEqual(client.get("/api/places", params={"q": "Pune"}).status_code, 200)
+            search.assert_called_with("Pune", latitude=None, longitude=None)
+
+    def test_provider_json_rejects_nonstandard_numbers_bad_encoding_and_truncation(self):
+        for raw in [b"\xff", b"{", b'{"value":NaN}', b"[" * 1100]:
+            opener = Mock()
+            opener.open.return_value = io.BytesIO(raw)
+            with (
+                self.subTest(body=raw[:30]),
+                patch("routelab.geography.build_opener", return_value=opener),
+                patch("routelab.store.reserve_network_slot"),
+                self.assertRaisesRegex(ValueError, "invalid JSON"),
+            ):
+                geography.fetch_json("https://photon.komoot.io", "/api/?q=Pune")
+        opener = Mock()
+        opener.open.side_effect = IncompleteRead(b"{")
+        with (
+            patch("routelab.geography.build_opener", return_value=opener),
+            patch("routelab.store.reserve_network_slot"),
+            self.assertRaisesRegex(ValueError, "unavailable"),
+        ):
+            geography.fetch_json("https://photon.komoot.io", "/api/?q=Pune")
+
+    def test_provider_response_bound_is_enforced_before_json_parsing(self):
+        opener = Mock()
+        opener.open.return_value = io.BytesIO(b"x" * 17)
+        with (
+            patch("routelab.geography.build_opener", return_value=opener),
+            patch("routelab.store.reserve_network_slot"),
+            self.assertRaisesRegex(ValueError, "too large"),
+        ):
+            geography.fetch_json("https://photon.komoot.io", "/api/?q=Pune", limit=16)
+
+    def test_road_snapshot_rejects_boolean_metrics_and_malformed_snaps(self):
+        for mutation in ["metric", "coordinate", "snap_shape", "matrix_shape"]:
+            payload = deepcopy(table())
+            if mutation == "metric":
+                payload["distances"][0][1] = True
+            elif mutation == "coordinate":
+                payload["sources"][0]["location"][0] = True
+            elif mutation == "snap_shape":
+                payload["sources"][0]["location"].append(1)
+            else:
+                payload["durations"][0].pop()
+            with (
+                self.subTest(mutation=mutation),
+                patch("routelab.road.fetch_json", return_value=payload),
+                self.assertRaises(ValueError),
+            ):
+                road.snapshot(example())
+
+    def test_road_geometry_rejects_boolean_metrics_and_malformed_coordinate_shape(self):
+        frozen = self.freeze()
+        for mutation in ["metric", "coordinate", "coordinate_shape"]:
+            payload = {
+                "code": "Ok",
+                "routes": [
+                    {
+                        "legs": [
+                            {"distance": 1200, "duration": 240},
+                            {"distance": 1800, "duration": 300},
+                        ],
+                        "geometry": {
+                            "type": "LineString",
+                            "coordinates": [[73.85, 18.52], [73.86, 18.53]],
+                        },
+                    }
+                ],
+            }
+            if mutation == "metric":
+                payload["routes"][0]["legs"][0]["duration"] = True
+            elif mutation == "coordinate":
+                payload["routes"][0]["geometry"]["coordinates"][0][0] = True
+            else:
+                payload["routes"][0]["geometry"]["coordinates"][0].append(1)
+            with (
+                self.subTest(mutation=mutation),
+                patch("routelab.road.fetch_json", return_value=payload),
+                self.assertRaises(ValueError),
+            ):
+                road.geometry(frozen, ["a"])
 
 
 if __name__ == "__main__":

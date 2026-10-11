@@ -35,12 +35,18 @@ def road_status():
 
 
 @router.get("/places")
-def places(q: str = Query(min_length=2, max_length=160)):
+def places(
+    q: str = Query(min_length=2, max_length=160),
+    latitude: float | None = Query(default=None, ge=-85, le=85, allow_inf_nan=False),
+    longitude: float | None = Query(default=None, ge=-180, le=180, allow_inf_nan=False),
+):
     q = " ".join(q.split())
     if len(q) < 2:
         raise HTTPException(422, "Enter at least two non-whitespace characters")
+    if (latitude is None) != (longitude is None):
+        raise HTTPException(422, "Provide both latitude and longitude for nearby search")
     try:
-        return geography.search(q)
+        return geography.search(q, latitude=latitude, longitude=longitude)
     except ValueError as exc:
         raise HTTPException(503, str(exc)) from exc
 

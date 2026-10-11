@@ -10,7 +10,10 @@ from .models import Fleet, Scenario, Stop
 def import_file(filename: str, content: bytes) -> Scenario:
     text = content.decode("utf-8-sig")
     if filename.lower().endswith(".json"):
-        body = json.loads(text)
+        try:
+            body = json.loads(text)
+        except RecursionError as exc:
+            raise ValueError("Scenario JSON is nested too deeply") from exc
         if not isinstance(body, dict):
             raise ValueError("Scenario JSON must be an object")
         return Scenario.model_validate(body.get("scenario", body))
@@ -32,7 +35,10 @@ def import_file(filename: str, content: bytes) -> Scenario:
             def number(key, default, row=row):
                 return float(row.get(key) or default)
 
-            geographic = bool(row.get("latitude") and row.get("longitude"))
+            has_latitude, has_longitude = bool(row.get("latitude")), bool(row.get("longitude"))
+            if has_latitude != has_longitude:
+                raise ValueError(f"Row {index + 2}: provide both latitude and longitude")
+            geographic = has_latitude and has_longitude
             if first_mode is not None and first_mode != geographic:
                 raise ValueError("All CSV rows must use the same coordinate system")
             first_mode = geographic

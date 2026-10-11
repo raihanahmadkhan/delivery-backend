@@ -155,6 +155,7 @@ def get_scenario(identity):
 
 
 def enqueue(kind, body, key=None):
+    key = key or None
     request_hash = digest({"kind": kind, "body": body})
     identity = uuid.uuid4().hex
     with connection() as conn:

@@ -62,16 +62,17 @@ app = FastAPI(
     description="Geographic route planning with validated, reproducible optimization experiments.",
     lifespan=lifespan,
 )
+app.include_router(router)
+allowed_origins = get_cors_origins()
+app.add_middleware(RequestSafety, allowed_origins=allowed_origins)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_allowed_hosts())
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=get_cors_origins(),
+    allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type", "Idempotency-Key"],
 )
-app.include_router(router)
-app.add_middleware(RequestSafety, allowed_origins=get_cors_origins())
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=get_allowed_hosts())
 
 
 @app.exception_handler(RequestValidationError)

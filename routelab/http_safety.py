@@ -8,6 +8,10 @@ from starlette.responses import JSONResponse
 MAX_BODY_BYTES = 3 * 1024 * 1024
 
 
+def reject_json_constant(value):
+    raise ValueError(f"Invalid JSON constant: {value}")
+
+
 class RequestSafety:
     def __init__(self, app, allowed_origins):
         self.app = app
@@ -49,13 +53,12 @@ class RequestSafety:
                             break
             except TimeoutError:
                 return await reject(408, "Request body timed out")
-            if headers.get(b"content-type", b"").split(b";")[0] == b"application/json":
+            content_type = headers.get(b"content-type", b"").split(b";", 1)[0].strip().lower()
+            if content_type == b"application/json" or (
+                content_type.startswith(b"application/") and content_type.endswith(b"+json")
+            ):
                 try:
-                    # Reject nonstandard NaN/Infinity and over-nested bodies before
-                    # validation errors can echo unserializable input values.
-                    json.loads(
-                        body, parse_constant=lambda value: (_ for _ in ()).throw(ValueError(value))
-                    )
+                    json.loads(body, parse_constant=reject_json_constant)
                 except (ValueError, RecursionError, UnicodeDecodeError):
                     return await reject(400, "Malformed JSON")
             pending = True

@@ -1,70 +1,62 @@
-# RouteLab release audit — 2026-09-22
+# RouteLab final review — 12 October 2026
 
-## Outcome
+The final cleanup preserves the existing architecture and useful capstone features. Native tests, builds, worker lifecycle checks, dependency audits, and retained benchmark validation pass. **Container build/run verification remains blocked by the unavailable local Docker engine.** RouteLab remains a shared workbench without authentication; this review does not certify a private or untrusted public dispatch service.
 
-The code hardening pass is complete for the defects identified below. The consolidated run has **12 passing checks**, one failed engine-availability check, and one blocked container build/run gate. **Container release certification is not complete.** The application remains a trusted local research workbench, not an authenticated public service.
+## Scope and decisions
 
-Authoritative machine evidence: `backend/artifacts/release-final-20260922-r2/report.json` and adjacent command logs. The directory also contains the final raw benchmark artifacts. The earlier `release-final-20260922` report is retained transparently: it caught an invalid Testing Library option in a new test's TypeScript types. That test was corrected before the complete r2 run. Artifacts are Git-ignored; retain/publish selected evidence explicitly.
+Reviewed the frontend components, controls, persisted drafts, API client, map/schedule/replay/comparison views, backend endpoints, input models, imports, matrices, all solvers, independent evaluator, replanning, experiments, CLI/benchmark tools, SQLite store, worker, HTTP safety, dependencies, configuration, deployment recipes, and documentation.
 
-## Fixed
+The independent evaluator, frozen matrices, background worker with recovery leases, solver comparisons, bounded exact oracle, optional OR-Tools reference, exports, and onboard disruption repair all have useful, explainable roles. They were retained. No new features, state frameworks, brokers, services, authentication system, or project restructuring were introduced. Existing uncommitted work was preserved. No unused runtime dependency requiring removal was found.
 
-- Routing: unreachable arcs no longer become zero-cost edges in removal scoring; nonmetric partial-route repair avoids infinite-delta arithmetic; candidate screening rejects invalid/duplicate customers; ALNS reports iteration-limit termination accurately.
-- Reference/evidence: OR-Tools rejects empty conservatively scaled integer domains without crashing or claiming infeasibility of the original model. Experiment removal settings are retained; exact gaps require matching scenario/matrix identities; failed trials retain provenance; cancelled experiments count all missing planned seed pairs.
-- Durable execution: expired leases cannot renew, publish progress, or complete even before another claimant arrives. Retried jobs clear previous progress. Shutdown releases only its own claim. CPU children detect dead supervisors; hard termination has a kill fallback. Cancellation remains terminal; stale tokens cannot overwrite a newer attempt.
-- Storage: explicit version-1 initialization, preservation of original unversioned RouteLab data, refusal to downgrade newer schemas, tested integrity and SQLite backup/restore. API readiness distinguishes an available database from a live worker.
-- HTTP/imports: pre-parser streamed/body-size and timeout limits; origin and Host restrictions; malformed/nonfinite JSON handling; bounded evaluation/matrix/execution inputs; sanitized validation/storage errors; literal export formats; finite integer Solomon IDs/fleet counts; CSV duplicate headers and malformed row widths rejected.
-- UI: corrupted persisted drafts and malicious hash IDs are rejected; delayed preset/import/snapshot responses cannot overwrite newer edits; saved-run loading cannot display unrelated draft geometry; duplicate submission and late progress races guarded; move reports clear after settings change; JSON dialog focus trapping/Escape/restoration; accessible mobile navigation and keyboard-selectable schematic stops; upload size and non-JSON gateway errors handled.
-- Deployment/dependencies: nonroot API image, explicit copied runtime source, process/resource limits, readiness proxy, preserved Nginx security-header inheritance with caching, CSP, loopback bindings, and documented environment settings. Compatible security updates replace vulnerable dependency versions and old venv bootstrap tooling. Retired tour algorithms/UI screens, mapping/chart/client dependencies, and Render/Netlify/Tailwind configs were removed; Git history preserves the original work.
-- Repeatable verification: `scripts/verify_release.py` retains each command's output, all benchmark artifacts, and a machine-readable gate result. No commits, pushes, or public deployment were performed.
+## Targeted changes
 
-## Verified on the final tree
+- Hide ALNS-only controls for methods that ignore them; prevent oversized exact solves and invalid comparison submissions.
+- Clear obsolete Undo state after scenario replacement, recover from missing bookmarked runs, and reject malformed persisted matrix data before rendering.
+- Display synthetic geographic route order with an explicit straight-line caption; keep imported matrices without road provenance location-only.
+- Correct multi-day schedule labels, unavailable experiment timing, and the replanning method shown in History. Remove confirmed unused icons, selectors, and a redundant class.
+- Check cancellation before fast solver construction and preserve cancellation caught by the OR-Tools callback.
+- Reject half-provided CSV latitude/longitude pairs; retain Cartesian CSV compatibility when both geographic columns are blank.
+- Normalize empty idempotency keys to avoid duplicate-key server errors. Canonicalize equivalent provider URLs so community-service limits remain enforced.
+- Reject invalid tile hosts/ports and HTTP tile hosts blocked by deployment CSP. Remove the ineffective IPv6 literal from default allowed hosts; retain supported outbound IPv6 provider URLs.
+- Select the maintained Python 3.11 series instead of pinning an old patch. Add focused regressions and skip only optional reference checks when OR-Tools is absent.
 
-| Gate | Result |
+## Verified
+
+| Check | Result |
 | --- | --- |
-| Backend tests | 28 passed; generated directed/capacitated/windowed cases, independent exhaustive oracle, solver/evaluator differential checks, edge cases, imports, HTTP boundaries, transactions, migration/backup |
-| Backend lint/format | Ruff check and format check passed |
-| API → spawned worker | Exact run, experiment, replan, CSV export passed against an isolated temporary database |
-| Real processes | Queued/running cancellation, graceful restart, abrupt supervisor death/orphan detection, two-worker exclusive claiming and database integrity passed |
-| Frontend tests | 11 passed; identity, input, injection-as-text, keyboard selection, modal focus, delayed loads, mobile names, API errors |
-| Frontend checks | Strict TypeScript, ESLint and Vite production build passed; JS 246.41 kB / 76.28 kB gzip |
-| Clean setup | Fresh Python virtualenv/runtime/dev/reference install; `npm ci --ignore-scripts` succeeded after stopping Vite's Windows native-module lock |
-| Python dependencies | `pip check` passed; `pip-audit --local` found no known vulnerabilities, including optional reference/dev/bootstrap packages |
-| JavaScript dependencies | `npm audit --audit-level=low` reported zero vulnerabilities |
-| Benchmarks | 75 retained trials, four instances, three seeds, baseline/reference solvers and ALNS ablations; all artifacts reloaded, hashes recomputed and routes independently re-evaluated |
-| Compose | `docker compose config --quiet` passed |
-| Containers | Build/run, image/OS-package audit and runtime Nginx checks blocked by the unavailable engine; static inspection is not a substitute |
+| Backend suite | 66 tests passed, including input/security boundaries, solver/evaluator agreement, API idempotency, geographic providers, persistence and lease races |
+| Frontend suite | 47 interaction tests passed |
+| Static/build checks | Ruff lint and format, strict TypeScript, ESLint, and Vite production build passed |
+| Runtime dependencies | `pip check` passed; `pip-audit --local` and `npm audit --audit-level=low` reported no known vulnerabilities |
+| API and spawned worker | Exact solve, experiment, replan, and CSV export passed using temporary databases |
+| Real process lifecycle | Queued/running cancellation, graceful restart, abrupt supervisor death, orphan recovery, exclusive concurrent claims, and SQLite integrity passed |
+| Benchmark artifacts | 75 trials across four presets, three seeds, reference methods, and ALNS ablations; every scenario/matrix hash recomputed and result independently re-evaluated |
+| Additional correctness check | 100 constrained directed/unreachable tiny instances matched independent exhaustive enumeration |
+| Optional-free core tests | Only two reference-specific tests skipped with OR-Tools unavailable; remaining checks passed |
+| Browser | Exact solution and schedule, bounded delay repair, three-trial comparison, History reload, meaningful solver controls, and mobile navigation checked; no observed console errors or horizontal overflow at the 390px test viewport |
+| Live geographic smoke | Photon returned five Pune suggestions; public OSRM supplied a directed two-point snapshot and matching 55-point geometry (0.4027 km / 1.125 min outbound leg) |
+| Compose | Base and optional road override configurations validated |
+| Containers | Engine unavailable; Linux image build, image/OS-package audit, runtime Nginx proxy/headers, and container shutdown remain unverified |
 
-The separate browser smoke exercised scenario selection, completed exact-run schedules, four-trial experiment submission/results, and mobile layout/navigation. The observed 390px viewport had no horizontal page overflow. Browser smoke and jsdom interaction tests are not a comprehensive cross-browser or screen-reader certification. Temporary viewport overrides were reset and test API/dev processes were stopped.
+Machine evidence: `backend/artifacts/final-review-20261012-r2/report.json` and adjacent logs/benchmark artifacts. The initial `final-review-20261012` report is retained: it found one test-format issue, which was corrected before the final run. The final report intentionally returns `release_ready: false` and exit code 1 when the engine check fails. Native validation is not a substitute for container execution.
 
-Benchmark settings: seeds 11/22/33, 0.5-second per-trial cap, 100 iterations, presets tiny/harbor/tight/scattered, full algorithms plus no-adaptation/no-local-search variants. 72 trials were feasible (including three certified exact optima); three local-search trials on the tight-window scenario correctly reported no feasible solution found. No trial errored. This is correctness/representative-run evidence, **not** a statistical superiority or hardware-neutral performance claim. Time-capped trajectories may vary between runs. The manifests retain platform, source fingerprint, solver configuration and input hashes.
+The live-service smoke is retained in `backend/artifacts/final-review-live-services.json`; browser evidence in `backend/artifacts/final-review-browser.jpg`. Artifacts are Git-ignored. Earlier audit evidence remains in its original artifact directories. The source tests and this review are tracked.
 
-Test host: Windows, Python 3.11.5, Node 20.20.0, Vite 8.0.16, optional OR-Tools 9.15.6755. Prefer a maintained Python patch and Node 22 for new deployments; the actual Linux image build remains a release gate.
+The verified host used Windows, Python 3.11.5, Node 20.20.0, and the installed optional OR-Tools reference. Use maintained Python patches and Node 22 for deployment. Windows sandbox socket/temp restrictions required native validation outside the sandbox; they were not worked around in application code. Test processes used isolated databases; the user's notebook was preserved.
 
-## Blocking container gate
+## Genuine limitations
 
-The installed Docker CLI cannot connect to `dockerDesktopLinuxEngine`. Starting Desktop fails while initializing its internal ingest socket (`sailor-ingest.sock`: file cannot be accessed). A read-only WSL check found no independent engine socket or Podman alternative. No factory reset, Docker-state deletion, system installation, paid service, or infrastructure migration was attempted.
+- Saved scenarios, history, and job controls are shared by every visitor. CORS and allowed hosts are not authorization. Keep access trusted; private/untrusted deployment requires a separate access-control design.
+- SQLite and worker coordination target one machine. Persistent hosting storage is needed to retain history; saved artifacts are not automatically purged.
+- Public tiles/search/routing need internet and offer no SLA or live traffic. The lightweight live smoke confirms current connectivity, not provider availability or full road-network coverage. No regional OSRM dataset or complete cross-browser/accessibility certification was performed.
+- Exact proofs stop at eight customers. Heuristic failure is not infeasibility proof; OR-Tools integer rounding and time caps retain their documented limitations. Replanning repairs one disruption with fixed onboard assignments.
+- Container deployment remains an external verification gate. No deployment, commit, or push was performed.
+- Backend and frontend are separate Git repositories. Root Compose files and deployment documentation are outside both and are not included by pushing either repository.
 
-Repair/start an available local OCI engine before rerunning the gate. Container base-image contents, Linux installation, live Nginx headers/proxying, and actual container shutdown cannot be certified until that succeeds.
-
-## Non-blocking scope limitations
-
-- Single-machine SQLite, trusted local access, no auth/multi-tenancy/TLS termination or automatic retention purge. Do not expose this configuration publicly. The notebook displays the newest 100 entries, retaining older rows.
-- Exact proof is limited to eight customers; heuristic failure is not an infeasibility proof. OR-Tools rounding can exclude borderline-feasible floating-point routes.
-- Optional OSRM was tested with mocked responses and cache/unit/reachability checks, not a downloaded regional graph. The offline SVG is schematic; no road geometry or traffic claims.
-- Time-limited runs are not bitwise reproducible across hardware. More datasets/seeds and isolated timing are needed for comparative performance claims.
-- Upstream test/reference deprecation warnings remain (Starlette's httpx test adapter, SWIG types, jsdom's transitive encoding package). These are not suppressed; tests/builds and vulnerability audits pass.
-- Backend/frontend remain separate Git repositories. Root Compose and deployment documentation are outside both; publishing them needs an explicit repository decision.
-
-## Commands to reproduce / finish
-
-Activate the backend virtualenv, install manifests, and install the frontend lockfile before running. Stop local servers on 8000/8080; keep the container engine running. From `backend`:
+To repeat the complete gate after an engine is available, run from `backend` with installed development/reference requirements and frontend dependencies:
 
 ```sh
-python -m pip install -r requirements-bootstrap.txt
-python -m pip install -r requirements-dev.txt -r requirements-reference.txt
 python scripts/verify_release.py --output artifacts/release-check-next
 ```
 
-Run `npm ci` from `frontend` before the script on a clean checkout. The output directory must be new. Expected completion: every check `passed`, process exit code 0, `report.json` has `release_ready: true`. The script builds/starts a separate `routelab-release-check` Compose project, checks proxied readiness/optimization/static security headers, then stops it without deleting its volume.
-
-Current r2 exit code is **1**, solely because engine availability failed and container build/run was blocked. Do not label the container release ready until the final gate passes.
+Use a new output directory. The runner retains all evidence and reports success only when every gate passes.
